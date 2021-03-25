@@ -1,0 +1,250 @@
+//
+// Created by trykr on 19.03.2021.
+//
+
+#include "Parser.h"
+
+#include <utility>
+
+Column::Column(std::string name)
+{
+    this->name = std::move(name);
+}
+
+Column::~Column() {
+
+}
+
+void Column::setType(Type type)
+{
+    this->type = type;
+}
+
+std::string Column::getName() const
+{
+    return name;
+}
+
+Type Column::getType() const
+{
+    return type;
+}
+
+Parser::Parser(std::string& name)
+{
+    std::fstream file;
+    file.open(name);
+    if (!file.is_open())
+    {
+        std::cerr << "Wrong name/address of file" << std::endl;
+    }
+    if (name.find('\\') == std::string::npos)
+    {
+        this->name = name.substr(0, name.size() - 4);
+    }
+    else
+    {
+        this->name = name.substr(name.find_last_of('\\') + 1, name.size());
+        this->name = this->name.substr(0, this->name.size() - 4);
+    }
+    std::string buf;
+    std::getline(file, buf);
+    setColumns(buf);
+    table = new std::vector<std::string>[structure.size() + 1];
+
+    std::getline(file, buf);
+    setLineAndDefineStructure(buf);
+    while (std::getline(file, buf))
+    {
+        setLine(buf);
+    }
+}
+
+Parser::~Parser()
+{
+
+}
+
+void Parser::setColumns(std::string &s)
+{
+    std::string name;
+    while (s.find(',') != std::string::npos)
+    {
+        name = s.substr(0, s.find_first_of(','));
+        name = name.substr(1, name.size() - 2);
+        s = s.substr(s.find_first_of(',') + 1, s.size());
+        while (s.find(' ') != std::string::npos)
+        {
+            s[s.find(' ')] = '_';
+        }
+        structure.emplace_back(name);
+    }
+    s = s.substr(1, s.size() - 2);
+    while (s.find(' ') != std::string::npos)
+    {
+        s[s.find(' ')] = '_';
+    }
+    structure.emplace_back(s);
+}
+
+void Parser::setLine(std::string &s)
+{
+    std::string buf;
+    int count = 0;
+    while (s.find(',') != std::string::npos)
+    {
+        buf = s.substr(0, s.find_first_of(','));
+        if (buf.front() == '"' && buf.back() == '"')
+        {
+            buf = buf.substr(1, buf.size() - 2);
+        }
+        else if (buf.front() == '"' && buf.back() != '"')
+        {
+            while(buf.front() == '"' && buf.back() != '"')
+            {
+                s = s.substr(s.find_first_of(',') + 1, s.size());
+                buf += ',';
+                buf += s.substr(0, s.find_first_of(','));
+            }
+        }
+        s = s.substr(s.find_first_of(',') + 1, s.size());
+        table[count].push_back(buf);
+        count++;
+    }
+    buf = s.substr(0, s.find_first_of(','));
+    if (buf.front() == '"' && buf.back() == '"')
+    {
+        buf = buf.substr(1, buf.size() - 2);
+    }
+    else if (buf.front() == '"' && buf.back() != '"')
+    {
+        while(buf.front() == '"' && buf.back() != '"')
+        {
+            s = s.substr(s.find_first_of(',') + 1, s.size());
+            buf += ',';
+            buf += s.substr(0, s.find_first_of(','));
+        }
+    }
+    s = s.substr(s.find_first_of(',') + 1, s.size());
+    table[count].push_back(buf);
+}
+
+void Parser::setLineAndDefineStructure(std::string &s)
+{
+    auto structureIterator = structure.begin();
+    std::string buf;
+    int count = 0;
+    while (s.find(',') != std::string::npos)
+    {
+        buf = s.substr(0, s.find_first_of(','));
+        if (buf.front() == '"' && buf.back() == '"')
+        {
+            buf = buf.substr(1, buf.size() - 2);
+            structureIterator->setType(Type::string);
+        }
+        else if (buf.front() == '"' && buf.back() != '"')
+        {
+            while(buf.front() == '"' && buf.back() != '"')
+            {
+                s = s.substr(s.find_first_of(',') + 1, s.size());
+                buf += ',';
+                buf += s.substr(0, s.find_first_of(','));
+            }
+            structureIterator->setType(Type::string);
+        }
+        else
+        {
+            structureIterator->setType(Type::number);
+        }
+        s = s.substr(s.find_first_of(',') + 1, s.size());
+        structureIterator++;
+        table[count].push_back(buf);
+        count++;
+    }
+
+    buf = s.substr(0, s.find_first_of(','));
+    if (buf.front() == '"' && buf.back() == '"')
+    {
+        buf = buf.substr(1, buf.size() - 2);
+        structureIterator->setType(Type::string);
+    }
+    else if (buf.front() == '"' && buf.back() != '"')
+    {
+        while(buf.front() == '"' && buf.back() != '"')
+        {
+            s = s.substr(s.find_first_of(',') + 1, s.size());
+            buf += ',';
+            buf += s.substr(0, s.find_first_of(','));
+        }
+        structureIterator->setType(Type::string);
+    }
+    else
+    {
+        structureIterator->setType(Type::number);
+    }
+    s = s.substr(s.find_first_of(',') + 1, s.size());
+    structureIterator++;
+    table[count].push_back(buf);
+}
+
+void Parser::generateScrypt()
+{
+    std::ofstream output(name + ".sql");
+    output << "CREATE TABLE " + name + "(" << std::endl;
+    output << "id int GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY," << std::endl;
+    for (auto i = structure.begin(); i != structure.end(); i++)
+    {
+        if (i->getType() == Type::string)
+        {
+            output << i->getName() + " text";
+        }
+        else if (i->getType() == Type::number)
+        {
+            output << i->getName() + " bigint";
+        }
+        if (i != --structure.end())
+        {
+            output << ',' << std::endl;
+        }
+    }
+    output << ");" << std::endl;
+    auto iterator = structure.begin();
+    for (int i = 0; i < table[0].size(); ++i)
+    {
+        output << "INSERT INTO " + name + "(";
+        for (auto st = structure.begin(); st != --structure.end(); st++)
+        {
+            output << st->getName() + ", ";
+        }
+            output << (--structure.end())->getName();
+        output << ") VALUES (";
+        for (int j = 0; j < structure.size(); ++j)
+        {
+            if (iterator->getType() == Type::string)
+            {
+                if (j == structure.size() - 1)
+                {
+                    output << "'" << table[j][i] << "'" << ");";
+                }
+                else
+                {
+                    output << "'" << table[j][i] << "'" << ", ";
+                }
+            }
+            else if (iterator->getType() == Type::number)
+            {
+                if (j == structure.size() - 1)
+                {
+                    output << table[j][i] << ");";
+                }
+                else
+                {
+                    output << table[j][i] << ", ";
+                }
+            }
+            iterator++;
+        }
+        iterator = structure.begin();
+        output << std::endl;
+    }
+}
